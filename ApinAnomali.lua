@@ -308,13 +308,65 @@ for i, name in ipairs(tabNames) do
     b.Activated:Connect(function() buildTab(name) end)
 end
 
+-- Floating reopen button (Delta-style launcher)
+local floatingButton = Instance.new("ImageButton")
+floatingButton.Name = "ApinAnomaliFloatingButton"
+floatingButton.Size = UDim2.new(0, 44, 0, 44)
+floatingButton.Position = UDim2.new(1, -82, 0.5, -29)
+floatingButton.BackgroundColor3 = Color3.fromRGB(18, 20, 23)
+floatingButton.BackgroundTransparency = 0.05
+floatingButton.Image = ""
+floatingButton.Visible = false
+floatingButton.Parent = gui
+round(floatingButton, 30)
+stroke(floatingButton, Color3.fromRGB(95, 205, 120), 2, 0.08)
+
+-- Upload the APIN ANOMALI logo to Roblox and replace YOUR_ROBLOX_IMAGE_ID.
+-- Roblox GUI images use Roblox asset IDs, not external raw URLs.
+local logoMark = Instance.new("ImageLabel")
+logoMark.Name = "LogoImage"
+logoMark.BackgroundTransparency = 1
+logoMark.Size = UDim2.new(1, -4, 1, -4)
+logoMark.Position = UDim2.new(0, 2, 0, 2)
+logoMark.Image = "rbxassetid://84770670507707"
+logoMark.ScaleType = Enum.ScaleType.Crop
+logoMark.Parent = floatingButton
+round(logoMark, 28)
+
 local minimized = false
 closeBtn.Activated:Connect(function()
-    minimized = not minimized
-    tabs.Visible = not minimized
-    content.Visible = not minimized
-    panel.Size = minimized and UDim2.new(0.92, 0, 0, 82) or UDim2.new(0.92, 0, 0.72, 0)
-    closeBtn.Text = minimized and "+" or "—"
+    minimized = true
+    panel.Visible = false
+    floatingButton.Visible = true
+end)
+
+floatingButton.Activated:Connect(function()
+    minimized = false
+    panel.Visible = true
+    floatingButton.Visible = false
+end)
+
+-- Allow the floating launcher to be moved around the screen.
+local floatDragging, floatStart, floatPos
+floatingButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        floatDragging = true
+        floatStart = input.Position
+        floatPos = floatingButton.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if floatDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local delta = input.Position - floatStart
+        floatingButton.Position = UDim2.new(floatPos.X.Scale, floatPos.X.Offset + delta.X, floatPos.Y.Scale, floatPos.Y.Offset + delta.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        floatDragging = false
+        floatStart = nil
+        floatPos = nil
+    end
 end)
 
 local enabled = false
