@@ -4,6 +4,8 @@
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
@@ -104,11 +106,11 @@ tabs.BackgroundTransparency = 0.18
 tabs.BorderSizePixel = 0
 tabs.ScrollBarThickness = 2
 tabs.ScrollingDirection = Enum.ScrollingDirection.X
-tabs.CanvasSize = UDim2.new(0, 590, 0, 0)
+tabs.CanvasSize = UDim2.new(0, 850, 0, 0)
 tabs.Parent = panel
 round(tabs, 20)
 
-local tabNames = {"All", "Favs", "Binds", "Custom", "States", "Size", "Others"}
+local tabNames = {"All", "Favs", "Binds", "Custom", "States", "Size", "Others", "Tools", "Theme", "Save"}
 local tabButtons = {}
 local activeTab = "All"
 
@@ -225,12 +227,165 @@ local function addSlider(text, minValue, maxValue, defaultValue, callback)
     end)
 end
 
+local function addButton(text, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -4, 0, 46)
+    btn.BackgroundColor3 = Color3.fromRGB(50, 65, 56)
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamBold
+    btn.LayoutOrder = #content:GetChildren()
+    btn.Parent = content
+    round(btn, 14)
+    btn.Activated:Connect(function() if callback then callback(btn) end end)
+    return btn
+end
+
 local function getHumanoid()
     local character = player.Character
     return character and character:FindFirstChildOfClass("Humanoid")
 end
 
 local speedValue, jumpValue = 16, 50
+-- These tools are intended for development/testing in your own experience.
+local featureState = {fly=false, noclip=false, esp=false}
+local savedSettings = {speed=16, jump=50, theme=1}
+local themeIndex = 1
+local themes = {
+    {name="Forest", panel=Color3.fromRGB(12,15,17), accent=Color3.fromRGB(65,170,95)},
+    {name="Ocean", panel=Color3.fromRGB(10,20,35), accent=Color3.fromRGB(45,145,220)},
+    {name="Purple", panel=Color3.fromRGB(25,15,35), accent=Color3.fromRGB(165,90,220)},
+    {name="Rose", panel=Color3.fromRGB(35,15,22), accent=Color3.fromRGB(220,90,125)},
+}
+local flyVelocity, flyGyro, flyAttachment
+local highlights = {}
+local originalCollision = {}
+local featureConnections = {}
+
+local function stopFly()
+    featureState.fly = false
+    if flyVelocity then flyVelocity:Destroy(); flyVelocity=nil end
+    if flyGyro then flyGyro:Destroy(); flyGyro=nil end
+    if flyAttachment then flyAttachment:Destroy(); flyAttachment=nil end
+    local h = getHumanoid()
+    if h then h.PlatformStand = false end
+end
+
+local function startFly()
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local h = getHumanoid()
+    if not root or not h then status.Text = "● Character not ready"; return false end
+    stopFly()
+    featureState.fly = true
+    flyAttachment = Instance.new("Attachment")
+    flyAttachment.Name = "ApinFlyAttachment"
+    flyAttachment.Parent = root
+    flyVelocity = Instance.new("LinearVelocity")
+    flyVelocity.Name = "ApinFlyVelocity"
+    flyVelocity.Attachment0 = flyAttachment
+    flyVelocity.MaxForce = 100000
+    flyVelocity.VectorVelocity = Vector3.zero
+    flyVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+    flyVelocity.Parent = root
+    flyGyro = Instance.new("AlignOrientation")
+    flyGyro.Name = "ApinFlyOrientation"
+    flyGyro.Attachment0 = flyAttachment
+    flyGyro.MaxTorque = 100000
+    flyGyro.Responsiveness = 15
+    flyGyro.Parent = root
+    h:ChangeState(Enum.HumanoidStateType.Freefall)
+    status.Text = "● Fly ON: move + jump to rise"
+    return true
+end
+
+local function setNoclip(on)
+    featureState.noclip = on
+    if not on then
+        for part, canCollide in pairs(originalCollision) do
+            if part and part.Parent then part.CanCollide = canCollide end
+        end
+        table.clear(originalCollision)
+    end
+end
+
+local function clearHighlights()
+    for target, highlight in pairs(highlights) do
+        if highlight then highlight:Destroy() end
+        highlights[target] = nil
+    end
+end
+
+local function setESP(on)
+    featureState.esp = on
+    clearHighlights()
+    if not on then return end
+    for _, target in ipairs(Players:GetPlayers()) do
+        if target ~= player and target.Character then
+            local hl = Instance.new("Highlight")
+            hl.Name = "ApinPlayerHighlight"
+            hl.FillColor = themes[themeIndex].accent
+            hl.OutlineColor = Color3.new(1,1,1)
+            hl.FillTransparency = 0.65
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Adornee = target.Character
+            hl.Parent = gui
+            highlights[target] = hl
+        end
+    end
+end
+
+local function applyTheme()
+    local t = themes[themeIndex]
+    panel.BackgroundColor3 = t.panel
+    toggleBtn.BackgroundColor3 = t.accent
+    floatingButton.BackgroundColor3 = t.panel
+    for _, b in pairs(tabButtons) do b.BackgroundColor3 = Color3.fromRGB(42,45,49) end
+    if featureState.esp then setESP(true) end
+end
+
+-- Character movement updates; server-side validation should be used in production.
+RunService.Heartbeat:Connect(function()
+    local character = player.Character
+    if featureState.noclip and character then
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if originalCollision[part] == nil then originalCollision[part] = part.CanCollide end
+                part.CanCollide = false
+            end
+        end
+    end
+    if featureState.fly and flyVelocity and character then
+        local root = character:FindFirstChild("HumanoidRootPart")
+        local h = getHumanoid()
+        if root and h then
+            local camera = Workspace.CurrentCamera
+            local move = h.MoveDirection
+            local vertical = 0
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) or h.Jump then vertical = 1 end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then vertical = -1 end
+            local forward = camera and camera.CFrame.LookVector or root.CFrame.LookVector
+            local right = camera and camera.CFrame.RightVector or root.CFrame.RightVector
+            local horizontal = Vector3.new(move.X, 0, move.Z)
+            flyVelocity.VectorVelocity = horizontal * 38 + Vector3.new(0, vertical * 32, 0)
+            if camera then flyGyro.CFrame = CFrame.lookAt(root.Position, root.Position + forward) end
+        else
+            stopFly()
+        end
+    end
+end)
+
+Players.PlayerAdded:Connect(function(target)
+    target.CharacterAdded:Connect(function()
+        task.wait(1)
+        if featureState.esp and target ~= player then setESP(true) end
+    end)
+end)
+Players.PlayerRemoving:Connect(function(target)
+    if highlights[target] then highlights[target]:Destroy(); highlights[target]=nil end
+end)
+
 local function buildTab(tab)
     activeTab = tab
     for name, button in pairs(tabButtons) do
@@ -274,6 +429,61 @@ local function buildTab(tab)
             panel.Size = UDim2.new(0, value, panel.Size.Y.Scale, panel.Size.Y.Offset)
             panel.Position = UDim2.new(0.5, -value/2, panel.Position.Y.Scale, panel.Position.Y.Offset)
         end)
+    elseif tab == "Tools" then
+        addSection("DEVELOPMENT TOOLS — YOUR OWN EXPERIENCE")
+        addToggle("Fly Mode (WASD / move stick, Space to rise, Ctrl/C to descend)", featureState.fly, function(on)
+            if on then if not startFly() then featureState.fly=false end else stopFly() end
+        end)
+        addToggle("Noclip (disable character collisions)", featureState.noclip, function(on) setNoclip(on) end)
+        addToggle("Player ESP / Highlight", featureState.esp, function(on) setESP(on) end)
+        addButton("Teleport to nearest SpawnLocation", function()
+            local character = player.Character
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            local spawn = Workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+            if root and spawn then root.CFrame = spawn.CFrame + Vector3.new(0, 4, 0); status.Text = "● Teleported to spawn"
+            else status.Text = "● No SpawnLocation found" end
+        end)
+        addSection("SPEED PRESETS")
+        addButton("WalkSpeed: 16 (Default)", function() speedValue=16; local h=getHumanoid(); if h then h.WalkSpeed=16 end; status.Text="● Speed 16"; buildTab("Tools") end)
+        addButton("WalkSpeed: 24", function() speedValue=24; local h=getHumanoid(); if h then h.WalkSpeed=24 end; status.Text="● Speed 24"; buildTab("Tools") end)
+        addButton("WalkSpeed: 32", function() speedValue=32; local h=getHumanoid(); if h then h.WalkSpeed=32 end; status.Text="● Speed 32"; buildTab("Tools") end)
+    elseif tab == "Theme" then
+        addSection("APPEARANCE")
+        addButton("Current theme: " .. themes[themeIndex].name .. " — tap to cycle", function()
+            themeIndex = themeIndex % #themes + 1
+            applyTheme()
+            status.Text = "● Theme: " .. themes[themeIndex].name
+            buildTab("Theme")
+        end)
+        addButton("Refresh player highlights", function() if featureState.esp then setESP(true) end; status.Text="● Highlights refreshed" end)
+    elseif tab == "Save" then
+        addSection("SESSION SETTINGS")
+        addButton("Save current settings (this session)", function()
+            local h = getHumanoid()
+            savedSettings.speed = h and h.WalkSpeed or speedValue
+            savedSettings.jump = h and h.JumpPower or jumpValue
+            savedSettings.theme = themeIndex
+            status.Text = "● Settings saved for this session"
+        end)
+        addButton("Load saved settings", function()
+            speedValue, jumpValue, themeIndex = savedSettings.speed, savedSettings.jump, savedSettings.theme
+            local h = getHumanoid()
+            if h then h.WalkSpeed=speedValue; h.UseJumpPower=true; h.JumpPower=jumpValue end
+            applyTheme()
+            status.Text = "● Session settings loaded"
+            buildTab("Save")
+        end)
+        addButton("Reset settings", function()
+            speedValue, jumpValue, themeIndex = 16, 50, 1
+            stopFly(); setNoclip(false); setESP(false)
+            local h = getHumanoid()
+            if h then h.WalkSpeed=16; h.UseJumpPower=true; h.JumpPower=50 end
+            applyTheme(); status.Text="● Settings reset"; buildTab("Save")
+        end)
+        addSection("NOTE")
+        local note = makeText(content, "LocalScript cannot persist settings after leaving the server. For permanent saving, connect this UI to a server Script using a RemoteEvent and DataStoreService.", UDim2.new(1, -8, 0, 62), UDim2.new(), 12, Color3.fromRGB(205,205,205))
+        note.TextWrapped = true
+        note.LayoutOrder = #content:GetChildren()
     elseif tab == "Others" then
         addSection("OTHER OPTIONS")
         addToggle("Show ready status", true, function(on)
@@ -289,126 +499,4 @@ local function buildTab(tab)
 end
 
 for i, name in ipairs(tabNames) do
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, (name == "Custom" or name == "States" or name == "Others") and 88 or 70, 1, -8)
-    b.Position = UDim2.new(0, 5, 0, 4)
-    b.BackgroundColor3 = name == "All" and Color3.fromRGB(75,85,78) or Color3.fromRGB(42,45,49)
-    b.Text = name
-    b.TextColor3 = Color3.new(1,1,1)
-    b.TextSize = 13
-    b.Font = Enum.Font.GothamMedium
-    b.Parent = tabs
-    round(b, 15)
-    local x = 5
-    for j = 1, i-1 do
-        x = x + ((tabNames[j] == "Custom" or tabNames[j] == "States" or tabNames[j] == "Others") and 88 or 70) + 6
-    end
-    b.Position = UDim2.new(0, x, 0, 4)
-    tabButtons[name] = b
-    b.Activated:Connect(function() buildTab(name) end)
-end
-
--- Floating reopen button (Delta-style launcher)
-local floatingButton = Instance.new("ImageButton")
-floatingButton.Name = "ApinAnomaliFloatingButton"
-floatingButton.Size = UDim2.new(0, 44, 0, 44)
-floatingButton.Position = UDim2.new(1, -82, 0.5, -29)
-floatingButton.BackgroundColor3 = Color3.fromRGB(18, 20, 23)
-floatingButton.BackgroundTransparency = 0.05
-floatingButton.Image = ""
-floatingButton.Visible = false
-floatingButton.Parent = gui
-round(floatingButton, 30)
-stroke(floatingButton, Color3.fromRGB(95, 205, 120), 2, 0.08)
-
--- Upload the APIN ANOMALI logo to Roblox and replace YOUR_ROBLOX_IMAGE_ID.
--- Roblox GUI images use Roblox asset IDs, not external raw URLs.
-local logoMark = Instance.new("ImageLabel")
-logoMark.Name = "LogoImage"
-logoMark.BackgroundTransparency = 1
-logoMark.Size = UDim2.new(1, -4, 1, -4)
-logoMark.Position = UDim2.new(0, 2, 0, 2)
-logoMark.Image = "rbxassetid://84770670507707"
-logoMark.ScaleType = Enum.ScaleType.Crop
-logoMark.Parent = floatingButton
-round(logoMark, 28)
-
-local minimized = false
-closeBtn.Activated:Connect(function()
-    minimized = true
-    panel.Visible = false
-    floatingButton.Visible = true
-end)
-
-floatingButton.Activated:Connect(function()
-    minimized = false
-    panel.Visible = true
-    floatingButton.Visible = false
-end)
-
--- Allow the floating launcher to be moved around the screen.
-local floatDragging, floatStart, floatPos
-floatingButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        floatDragging = true
-        floatStart = input.Position
-        floatPos = floatingButton.Position
-    end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if floatDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-        local delta = input.Position - floatStart
-        floatingButton.Position = UDim2.new(floatPos.X.Scale, floatPos.X.Offset + delta.X, floatPos.Y.Scale, floatPos.Y.Offset + delta.Y)
-    end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        floatDragging = false
-        floatStart = nil
-        floatPos = nil
-    end
-end)
-
-local enabled = false
-toggleBtn.Activated:Connect(function()
-    enabled = not enabled
-    toggleBtn.Text = enabled and "ON" or "OFF"
-    toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(65,170,95) or Color3.fromRGB(65,68,73)
-    status.Text = enabled and "● Enabled" or "● Ready"
-end)
-
--- Drag panel using header
-local dragging, dragStart, startPos
-header.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = panel.Position
-    end
-end)
-header.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragStart = dragStart or input.Position
-    end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-        local delta = input.Position - dragStart
-        panel.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-        dragStart = nil
-        startPos = nil
-    end
-end)
-
-local keyConn = UserInputService.InputBegan:Connect(function(input, processed)
-    if not processed and input.KeyCode == Enum.KeyCode.RightShift then
-        panel.Visible = not panel.Visible
-    end
-end)
-
-buildTab("All")
+    local b = Instance.
